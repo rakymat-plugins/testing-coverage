@@ -1,0 +1,28 @@
+{
+  "name": "testing-coverage",
+  "description": "Design, plan, and implement a layered test suite in any stack: assess what testing a project needs, write a spec-driven plan and phased task list, then implement it layer by layer with a green gate between layers",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yousef"
+  },
+  "homepage": "https://github.com/rakymat-plugins/testing-coverage",
+  "repository": "https://github.com/rakymat-plugins/testing-coverage",
+  "license": "MIT",
+  "keywords": [
+    "testing",
+    "test-coverage",
+    "test-strategy",
+    "unit-tests",
+    "integration-tests",
+    "e2e",
+    "playwright",
+    "pytest",
+    "authorization-matrix",
+    "visual-regression",
+    "load-testing",
+    "flaky-tests",
+    "spec-driven-development",
+    "qa",
+    "test-automation"
+  ]
+}

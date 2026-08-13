@@ -1,0 +1,9 @@
+# Normalize text in the repo; check out with platform-native endings by default.
+* text=auto
+
+# Must stay LF or they fail to execute on macOS/Linux.
+*.sh text eol=lf
+skills/testing-coverage/scripts/*.py text eol=lf
+
+# Must stay CRLF for Windows PowerShell.
+*.ps1 text eol=crlf
