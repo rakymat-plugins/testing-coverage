@@ -224,6 +224,215 @@ Layer counts are **path heuristics**. A file named `*.integration.test.ts` that
 mocks the database is a unit test wearing a costume, and no path heuristic can see
 that — always read a sample before trusting a count.
 
+---
+
+# How it works
+
+## The flow, end to end
+
+```mermaid
+flowchart TD
+    repo[("your repo<br/>any stack")]
+
+    subgraph A["1 · /testing-assess"]
+        det["detect_stack.py<br/>languages, frameworks, datastores,<br/>CI, runners, tests by layer"]
+        audit["audit existing tests<br/>which ones cannot fail?"]
+        ask["interview<br/>2-4 questions x 3 batches max"]
+        verdict["verdict on all 11 layers<br/>ADOPT / PARTIAL / DEFER / SKIP"]
+        det --> audit --> ask --> verdict
+    end
+
+    subgraph B["2 · /testing-plan"]
+        design["design: conventions, harness,<br/>coverage targets, CI, risks"]
+        phases["phases: one per layer,<br/>dependency-ordered"]
+        tasks["tasks: T001..., what each<br/>must PROVE, + a GATE per phase"]
+        design --> phases --> tasks
+    end
+
+    subgraph C["3 · /testing-implement"]
+        loop["phase by phase<br/>green gate between each"]
+    end
+
+    repo --> A
+    A ==> S["📄 TESTING-STRATEGY.md"]
+    S --> B
+    B ==> P["📄 TESTING-PLAN.md"]
+    B ==> T["📄 TESTING-TASKS.md"]
+    P --> C
+    T --> C
+    C ==> code["✅ test code"]
+    C ==> E["📄 EVIDENCE-LOG.md"]
+    C -.->|"tick [x] as it goes"| T
+```
+
+Each command reads what the previous one wrote. Nothing is held in the session, so
+**a different person — or a fresh session next month — can pick up at any stage**
+by reading the three documents.
+
+| Command | Reads | Writes | Stops when |
+| --- | --- | --- | --- |
+| `/testing-assess` | your repo | `TESTING-STRATEGY.md` | the layer verdicts are decided |
+| `/testing-plan` | `TESTING-STRATEGY.md` | `TESTING-PLAN.md`, `TESTING-TASKS.md`, empty `EVIDENCE-LOG.md` | the task list is reviewable |
+| `/testing-implement` | `TESTING-PLAN.md`, `TESTING-TASKS.md` | test code, `EVIDENCE-LOG.md`, ticks `TESTING-TASKS.md` | a phase gate passes, or something blocks |
+
+Run `/testing-plan` without a strategy file and it stops and sends you to
+`/testing-assess` — it won't invent your layer selection, because that's your
+decision to make.
+
+## Inside a phase: the green-gate loop
+
+This is the engine. One phase = one layer.
+
+```mermaid
+flowchart TD
+    start(["Phase N — one layer"]) --> cmd{"does the layer's<br/>own command run?"}
+    cmd -->|no| p0["fix it — that's a<br/>Phase 0 defect, not a<br/>test-writing problem"]
+    p0 --> cmd
+    cmd -->|yes| task["take the next task"]
+    task --> write["write ONE test"]
+    write --> run["run it immediately"]
+    run --> why{"passes for the<br/>RIGHT reason?"}
+    why -->|"no — it's theatre"| rewrite["rewrite it<br/>see anti-patterns.md"]
+    rewrite --> run
+    why -->|"fails"| decide{"app wrong,<br/>or test wrong?"}
+    decide -->|"app wrong"| report["STOP · report the bug<br/>· ask before fixing"]
+    decide -->|"test wrong"| rewrite
+    why -->|yes| tick["tick [x] in TESTING-TASKS.md"]
+    tick --> left{"tasks left<br/>in this phase?"}
+    left -->|yes| task
+    left -->|no| full["run the FULL layer command"]
+    full --> gate{"all 5 gate<br/>conditions met?"}
+    gate -->|no| red["STOP — red is red.<br/>No skipping, no loosening,<br/>no retries to pass"]
+    gate -->|yes| fals["falsifiability check:<br/>break the code → must go RED<br/>→ restore → must go GREEN"]
+    fals --> log["append verbatim output<br/>to EVIDENCE-LOG.md"]
+    log --> done(["Phase N+1"])
+```
+
+### The five gate conditions
+
+A phase is done only when **all five** hold — anything less is red, and red means
+stop:
+
+1. The layer's **own command** runs from the repo root and **exits zero**.
+2. Every task in the phase is ticked off.
+3. **Real output is recorded** — actual counts and duration, verbatim. Not "all
+   green".
+4. **Zero unexplained skips.** Every skip has a written reason that isn't "it was
+   failing".
+5. The **falsifiability check** is done and recorded.
+
+### Why the falsifiability check exists
+
+A test that has never been seen failing is not evidence — it might be asserting
+nothing at all. So once per phase (and for **every** test in the resilience phase),
+the production code gets deliberately broken: invert the condition, remove the
+lock, delete the authorization check. The test **must** go red, with a message that
+points at the real cause. Then the code is restored and it must go green again.
+Both outcomes, plus what was broken, go in the evidence log.
+
+This is what separates "the suite passes" from "the suite works".
+
+### Forbidden routes to green
+
+`/testing-implement` will not take any of these, no matter what the runner prints:
+
+| ❌ Never | Why |
+| --- | --- |
+| delete or comment out a failing test | removes the finding, keeps the risk |
+| `skip`/`xfail`/`@Ignore` without a written non-failure reason | invisible gap |
+| loosen an assertion (`toBe(3)` → `toBeGreaterThan(0)`) | same class of act as deleting it |
+| wrap the assertion in try/catch and swallow | makes it unfailable |
+| add a retry to hide non-determinism | hides the actual bug |
+| raise a timeout to mask a hang | ditto |
+| `--passWithNoTests` in a phase that should have tests | reports green on nothing |
+| report the phase green from a filtered subset | untested code ships |
+
+And when a test does fail, it must say **out loud** which of two things is true
+before touching anything: the **app** is wrong (stop, report, ask — don't quietly
+patch production code inside a testing task) or the **test** is wrong (fix it, note
+it, move on). Finding real bugs is a success of the process, not an obstacle to it.
+
+## Default phase order
+
+Dependency-ordered, with one override: whatever the strategy named as the
+**highest-risk area** moves as early as its dependencies allow. If payments are the
+risk, resilience testing for payments becomes phase 5, not phase 9.
+
+| Phase | Layer | Why here |
+| --- | --- | --- |
+| 0 | Harness | nothing else can run without it |
+| 1 | L0 Static gates | cheapest defect-per-minute |
+| 2 | L1 Unit | fast feedback, no infrastructure |
+| 3 | L3 Contract | locks the shapes later layers assume |
+| 4 | L4 Integration | highest-value layer; needs phase 0 |
+| 5 | L5 Authorization | reuses the phase 4 harness |
+| 6 | L2 Component | independent; move earlier if UI-heavy |
+| 7 | L6 End-to-end | needs the full stack |
+| 8 | L7 Non-functional UI | reuses the phase 7 harness |
+| 9 | L8 Resilience | needs phase 4 harness; often finds real bugs |
+| 10 | L9 Load | needs a production-like environment |
+| 11 | L10 Guardrails + CI | encodes everything learned above |
+
+**Phase 0 is never merged into phase 1.** Its gate: from a cold start, one command
+brings the environment up, seeds it, passes its health check, and every layer
+command runs cleanly reporting zero tests. Prove the harness before writing tests
+that depend on it.
+
+## How the skill itself is wired
+
+The commands stay short on purpose. The knowledge lives in the skill, and each
+reference is loaded only at the moment it's needed — so a session doesn't burn
+context on load tests while writing unit tests.
+
+| File | Loaded when | Carries |
+| --- | --- | --- |
+| `SKILL.md` | always, first | the layer model, the two non-negotiable rules, guardrails |
+| `references/layers.md` | choosing layers · writing a layer's first test | what each layer proves, **cannot** prove, costs, when to skip |
+| `references/stack-map.md` | picking tools | per-ecosystem tooling + the one-command mechanism |
+| `references/interview.md` | during `/testing-assess` | the question bank, and which layer decision each question drives |
+| `references/harness.md` | phase 0 · any live-environment layer | disposable services, seeding, auth, isolation, determinism, CI |
+| `references/gates.md` | `/testing-plan` and every gate | the 5 conditions, forbidden routes, flaky-test policy |
+| `references/writing-tests.md` | writing tests for the current layer | per-layer playbooks: what to actually assert |
+| `references/anti-patterns.md` | **before any assertion** · when a test won't go green | the fake-test catalogue |
+| `templates/*.md` | when writing each artifact | the four output documents |
+| `scripts/detect_stack.py` | start of `/testing-assess` | stack + existing-coverage detection |
+
+## A worked example
+
+A Django API with a payments flow, some unit tests, and no integration tests:
+
+```
+/testing-assess
+  → detects: Python, Django, PostgreSQL, Stripe, Docker, GitHub Actions,
+             pytest present, 41 test files — all L1
+  → audits:  6 of the 41 assert on mocks only; 2 cannot fail at all
+  → asks:    highest risk? → "checkout"
+             irreversible? → "money movement"
+             containers?   → "yes, local + CI"
+  → decides: L0 ADOPT · L1 PARTIAL (triage the 8 first) · L3 ADOPT
+             L4 ADOPT · L5 ADOPT · L6 PARTIAL (3 journeys)
+             L8 ADOPT (money → mandatory) · L9 DEFER (no staging yet)
+             L2/L7 SKIP (API only, no UI)
+  → writes:  docs/testing/TESTING-STRATEGY.md
+
+/testing-plan
+  → phase 0 harness, then L0, L1-triage, L3, L4, L5, L8, L6, L10+CI
+  → L8 pulled to phase 6 because checkout is the named risk
+  → writes:  TESTING-PLAN.md + TESTING-TASKS.md (T001–T058)
+
+/testing-implement
+  phase 0 → testcontainers Postgres on 5434, seed profiles, factories,
+            pytest markers → GATE: cold start green, 0 tests ✓
+  phase 4 → 22 integration tests. T031 fails: a refund leaves the order
+            PAID. That's the APP, not the test → STOPS and reports.
+  phase 6 → race test: 5 concurrent checkouts on one item.
+            Falsifiability: removes SELECT FOR UPDATE → test goes RED ✓
+            restores → GREEN ✓ → recorded in EVIDENCE-LOG.md
+```
+
+The escaped bug in phase 4 is the payoff. It was reachable in production, and no
+amount of additional L1 coverage would ever have found it.
+
 ## License
 
 MIT
