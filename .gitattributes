@@ -1,9 +1,7 @@
 # Normalize text in the repo; check out with platform-native endings by default.
 * text=auto
 
-# Must stay LF or they fail to execute on macOS/Linux.
+# Must stay LF or they fail to execute. install.sh is also run through Git Bash
+# on Windows, where CRLF would break the shebang and the heredocs.
 *.sh text eol=lf
 skills/testing-coverage/scripts/*.py text eol=lf
-
-# Must stay CRLF for Windows PowerShell.
-*.ps1 text eol=crlf

@@ -9,7 +9,69 @@ verifiable test suite — in any language or framework.
 /testing-implement   →  test code + EVIDENCE-LOG.md
 ```
 
-Built for Claude Code (and any agent that reads skills + slash commands).
+---
+
+## Install
+
+```bash
+git clone https://github.com/rakymat-plugins/testing-coverage.git
+cd testing-coverage
+./install.sh
+```
+
+That's it. Restart Claude Code and the three commands are available in **every**
+project.
+
+### Options
+
+| Command | What it does |
+| --- | --- |
+| `./install.sh` | install for every project (`~/.claude`) |
+| `./install.sh --local` | install for the current project only (`./.claude`) |
+| `./install.sh --uninstall` | remove it again (add `--local` to target a project install) |
+| `./install.sh --help` | show usage |
+
+Re-run `./install.sh` any time to update — it replaces the previous install
+rather than merging, so files deleted upstream don't linger.
+
+### Windows
+
+Run it from **Git Bash** (right-click in the folder → *Git Bash Here*):
+
+```bash
+./install.sh
+```
+
+From PowerShell or CMD, call Git's bash by full path:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./install.sh
+```
+
+> **Don't** type a bare `bash ./install.sh` in PowerShell. On Windows that
+> resolves to `C:\Windows\System32\bash.exe` — the WSL launcher — which fails
+> with `execvpe(/bin/bash) failed` unless you have a WSL distro installed.
+
+### What it installs, and where
+
+```
+~/.claude/skills/testing-coverage/     SKILL.md, 7 references, 4 templates, 1 script
+~/.claude/commands/testing-assess.md
+~/.claude/commands/testing-plan.md
+~/.claude/commands/testing-implement.md
+```
+
+The installer verifies every file landed and exits non-zero if any is missing, so
+a partial install can't pass silently.
+
+### Requirements
+
+- **bash** — Git Bash on Windows, built in on macOS/Linux/WSL.
+- **Python 3.8+** — *optional.* Powers the stack detector. Without it the
+  workflow still runs; stack detection falls back to manual inspection. The
+  installer tells you which case you're in and smoke-tests the detector.
+
+Nothing to `pip install` or `npm install`. No API keys.
 
 ---
 
@@ -28,9 +90,29 @@ more tests:
 - **No structure** — one `test` script that runs everything, so a red build tells
   you only that *something* broke.
 
-This plugin addresses the cause: **decide which layers the project's risk actually
+This addresses the cause: **decide which layers the project's risk actually
 requires, build them in dependency order, and prove each one green before moving
 to the next.**
+
+## Usage
+
+```bash
+cd your-project
+
+/testing-assess              # interview + layer decisions
+/testing-plan                # plan + phased task list
+/testing-implement           # build phase 0, gate it, continue
+
+/testing-implement --phase-only   # one phase per invocation
+/testing-assess --quick           # one question batch
+/testing-assess --no-questions    # documented assumptions, no interview
+```
+
+Plain language works too: *"what tests does this project need"*, *"plan testing for
+this repo"*, *"implement the testing plan"*.
+
+The three artifacts are the handoff — a different person, or a fresh session, can
+pick up at any stage by reading them.
 
 ## The three commands
 
@@ -106,51 +188,10 @@ Two rules keep it honest everywhere:
 2. **One command per layer** — via separate configs, test markers, build tags, or
    directory scoping, whichever the ecosystem prefers.
 
-## Install
-
-### As a Claude Code plugin
-
-```
-/plugin marketplace add rakymat-plugins/testing-coverage
-/plugin install testing-coverage
-```
-
-### Manually
-
-```bash
-git clone https://github.com/rakymat-plugins/testing-coverage.git
-cd testing-coverage
-
-./install.sh                                    # macOS / Linux
-powershell -ExecutionPolicy Bypass -File ./install.ps1   # Windows
-```
-
-Copies the skill to `~/.claude/skills/testing-coverage/` and the three commands to
-`~/.claude/commands/`. Re-run to update.
-
-## Usage
-
-```bash
-cd your-project
-
-/testing-assess              # interview + layer decisions
-/testing-plan                # plan + phased task list
-/testing-implement           # build phase 0, gate it, continue
-
-/testing-implement --phase-only   # one phase per invocation
-/testing-assess --quick           # one question batch
-/testing-assess --no-questions    # documented assumptions, no interview
-```
-
-Plain language works too: *"what tests does this project need"*, *"plan testing for
-this repo"*, *"implement the testing plan"*.
-
-The three artifacts are the handoff — a different person, or a fresh session, can
-pick up at any stage by reading them.
-
 ## What's in here
 
 ```
+install.sh                     the installer
 commands/                      the 3 slash commands
 skills/testing-coverage/
   SKILL.md                     the layer model + guardrails
@@ -168,15 +209,16 @@ skills/testing-coverage/
 
 ## The stack detector
 
+Used automatically by `/testing-assess`. Standalone:
+
 ```bash
 python skills/testing-coverage/scripts/detect_stack.py /path/to/repo
 python skills/testing-coverage/scripts/detect_stack.py /path/to/repo --json
 ```
 
-Python 3 standard library only — nothing to install. Reports languages, package
-managers, frameworks, datastores, external services, container and CI setup, test
-runners, existing test files bucketed by layer guess, and which core layers have
-no coverage at all.
+Python 3 standard library only. Reports languages, package managers, frameworks,
+datastores, external services, container and CI setup, test runners, existing test
+files bucketed by layer guess, and which core layers have no coverage at all.
 
 Layer counts are **path heuristics**. A file named `*.integration.test.ts` that
 mocks the database is a unit test wearing a costume, and no path heuristic can see
